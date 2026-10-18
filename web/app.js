@@ -78,6 +78,7 @@ function render() {
 
 async function load() {
   try {
+    if (!navigator.onLine) throw new Error('Offline');
     const response=await fetch('./data/dashboard.json',{cache:'no-store'});
     if(!response.ok) throw new Error('Connection');
     const next=await response.json();
@@ -115,4 +116,5 @@ load();
 setInterval(()=>{if(!document.hidden)load();},60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
 window.addEventListener('online',load);
+window.addEventListener('offline',load);
 if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('./sw.js',{scope:'./'}).then(r=>r.update()).catch(()=>{});
