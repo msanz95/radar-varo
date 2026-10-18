@@ -1,0 +1,90 @@
+[
+  {
+    "synthetic": true,
+    "category": "Celulares",
+    "surface": "smartphones",
+    "price_cents": 999900,
+    "url": "https://www.telcel.com/tienda/producto/telefonos-y-smartphones/fixture/100001",
+    "jsonld": {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "sku": "100001",
+      "name": "Fixture Phone 128GB",
+      "brand": {
+        "name": "Fixture"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "9999.00",
+        "priceCurrency": "MXN",
+        "availability": "https://schema.org/InStock"
+      }
+    }
+  },
+  {
+    "synthetic": true,
+    "category": "Tablets",
+    "surface": "tablets",
+    "price_cents": 599950,
+    "url": "https://www.telcel.com/tienda/producto/tablets/fixture/100002",
+    "jsonld": {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "sku": "100002",
+      "name": "Fixture Tablet 256GB",
+      "brand": {
+        "name": "Fixture"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "5999.50",
+        "priceCurrency": "MXN",
+        "availability": "https://schema.org/InStock"
+      }
+    }
+  },
+  {
+    "synthetic": true,
+    "category": "Audífonos",
+    "surface": "accessories",
+    "price_cents": 129900,
+    "url": "https://www.telcel.com/tienda/producto/accesorios/fixture/100003",
+    "jsonld": {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "sku": "100003",
+      "name": "Fixture Audífonos",
+      "brand": {
+        "name": "Fixture"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "1299.00",
+        "priceCurrency": "MXN",
+        "availability": "https://schema.org/InStock"
+      }
+    }
+  },
+  {
+    "synthetic": true,
+    "category": "Relojes",
+    "surface": "connected",
+    "price_cents": 249900,
+    "url": "https://www.telcel.com/tienda/producto/vida-conectada/fixture/100004",
+    "jsonld": {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "sku": "100004",
+      "name": "Fixture Watch",
+      "brand": {
+        "name": "Fixture"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "2499.00",
+        "priceCurrency": "MXN",
+        "availability": "https://schema.org/InStock"
+      }
+    }
+  }
+]

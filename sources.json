@@ -1,0 +1,16 @@
+{
+  "sitemap": "https://www.telcel.com/sitemap.xml",
+  "max_product_requests": 60,
+  "max_listing_pages": 80,
+  "render_budget_seconds": 230,
+  "surface_budget_seconds": 40,
+  "detail_checks_per_run": 12,
+  "terms_reviewed_at": "2026-10-12",
+  "terms_urls": ["https://www.telcel.com/terminos-y-condiciones", "https://www.telcel.com/personas/equipos/terminos-y-condiciones"],
+  "surfaces": [
+    {"id": "smartphones", "name": "Smartphones", "url": "https://www.telcel.com/tienda/categoria/telefonos-y-smartphones", "product_path": "/tienda/producto/telefonos-y-smartphones/"},
+    {"id": "accessories", "name": "Accesorios", "url": "https://www.telcel.com/tienda/categoria/accesorios", "product_path": "/tienda/producto/accesorios/"},
+    {"id": "connected", "name": "Vida Conectada", "url": "https://www.telcel.com/tienda/categoria/vida_conectada", "product_path": "/tienda/producto/vida-conectada/"},
+    {"id": "tablets", "name": "Tablets", "url": "https://www.telcel.com/tienda/categoria/tablets", "product_path": "/tienda/producto/tablets/"}
+  ]
+}

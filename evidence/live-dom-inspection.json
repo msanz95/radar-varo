@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-12",
+  "method": "authorized_cloud_browser_public_dom",
+  "automatic_scan": false,
+  "catalog_url": "https://www.telcel.com/tienda/categoria/telefonos-y-smartphones",
+  "card_selector": "cx-custom-product-grid-item",
+  "price_selector": "custom-one-time-charge",
+  "old_price_card_selector": ".price-list",
+  "next_page_selector": "cx-pagination a:has(.cx-icon-telcel-arrow-right):not(.disabled)",
+  "observed_next_url": "https://www.telcel.com/tienda/categoria/telefonos-y-smartphones?currentPage=1",
+  "sku_selector": ".sku",
+  "old_price_detail_selector": ".discountPrice .discount",
+  "verified_sample": {
+    "sku": "71001914",
+    "name": "iPhone 16e 128GB",
+    "url": "https://www.telcel.com/tienda/producto/telefonos-y-smartphones/apple-iphone-16e-negro-128gb/71001914",
+    "list_price_cents": 1279900,
+    "detail_price_cents": 1279900,
+    "listed_old_price_cents": 1499900,
+    "currency": "MXN",
+    "listing_caption": "En Amigo Kit desde",
+    "add_to_cart_visible_enabled": true
+  },
+  "not_verified": ["full_category_crawl", "all_variants", "GitHub_runner", "PWA_visual_QA", "GitHub_Pages_deployment", "ntfy_device_delivery"]
+}

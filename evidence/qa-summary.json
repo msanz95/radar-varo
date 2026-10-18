@@ -1,0 +1,13 @@
+{
+  "unit_tests": 26,
+  "failures": 0,
+  "errors": 0,
+  "passed": true,
+  "browser_qa": "NOT_RUN",
+  "github_actions": "NOT_DEPLOYED",
+  "github_pages": "NOT_DEPLOYED",
+  "automatic_real_scan": "NOT_RUN",
+  "ntfy": "NOT_CONFIGURED",
+  "http_attempt": "SOURCE_ERROR on all four surfaces",
+  "live_dom": "card/detail selectors and one exact SKU confirmed"
+}
