@@ -83,7 +83,14 @@ def collect(config, prior):
                     seen_pages.add(next_url)
                     navigate(next_url)
                     page.locator(CARDS).first.wait_for(state='attached',timeout=15000)
-                    page.locator('cx-pagination').first.scroll_into_view_if_needed(timeout=8000)
+                    # Telcel mounts pagination only after scrolling the public listing.
+                    page.locator(CARDS).last.scroll_into_view_if_needed(timeout=8000)
+                    page.keyboard.press('End')
+                    try:
+                        page.locator('cx-pagination').first.wait_for(state='attached',timeout=8000)
+                        pagination_verified=True
+                    except BrowserTimeout:
+                        pagination_verified=False
                     cards=page.locator(CARDS).evaluate_all(EXTRACT_CARDS)
                     parsed=[parse_card(c,surface['id']) for c in cards]
                     if not parsed:raise SourceError('Página de catálogo vacía')
@@ -97,7 +104,11 @@ def collect(config, prior):
                         from urllib.parse import urljoin
                         next_url=urljoin(surface['url'],next_url)
                         if urlsplit(next_url).path!=urlsplit(surface['url']).path:raise SourceError('La paginación salió de la superficie')
-                    else:next_url=None
+                    else:
+                        if not pagination_verified:
+                            row.update(status='OK',resume_url=next_url,coverage='Precios observados; paginación pendiente de verificar')
+                            break
+                        next_url=None
                     time.sleep(1.2)
                 if not next_url:row.update(status='OK',complete=True,resume_url=None)
             except (SourceError,BrowserTimeout,BrowserError) as exc:
