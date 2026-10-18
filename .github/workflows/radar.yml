@@ -128,7 +128,7 @@ jobs:
               page.wait_for_function("document.querySelector('#system-state').textContent !== '…'")
               snapshot=context.request.get(urljoin(url,'data/dashboard.json')).json()
               assert snapshot['status']['automation']=='github_actions'
-                        assert snapshot['products'], 'Real prices are required'
+              assert snapshot['products'], 'Real prices are required'
               manifest=context.request.get(urljoin(url,'manifest.webmanifest')).json()
               assert manifest['display']=='standalone' and manifest['start_url']=='./'
               for icon in manifest['icons']:
