@@ -109,7 +109,7 @@ jobs:
           PUBLIC_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
           python - <<'PY'
-          import json, os, struct
+          import json, os, re, struct
           from pathlib import Path
           from urllib.parse import urljoin, urlsplit
           from playwright.sync_api import sync_playwright
@@ -125,7 +125,7 @@ jobs:
               response=page.goto(url,wait_until='networkidle',timeout=60000)
               assert response.status==200
               page.get_by_role('heading',name='SISTEMA AUTÓNOMO').wait_for()
-              page.wait_for_function("document.querySelector('#system-state').textContent !== '…'")
+              page.locator('#system-state').filter(has_not_text='…').wait_for()
               snapshot=context.request.get(urljoin(url,'data/dashboard.json')).json()
               assert snapshot['status']['automation']=='github_actions'
               assert snapshot['products'], 'Real prices are required'
@@ -136,7 +136,6 @@ jobs:
                   assert icon_response.status==200
                   size=struct.unpack('>II',icon_response.body()[16:24])
                   assert f'{size[0]}x{size[1]}'==icon['sizes']
-              page.wait_for_function('navigator.serviceWorker.controller !== null',timeout=20000)
               worker=page.evaluate("async()=>{const r=await navigator.serviceWorker.ready;return {scope:r.scope,state:r.active.state,script:r.active.scriptURL}}")
               assert worker['state']=='activated'
               assert worker['scope']==url
@@ -163,10 +162,10 @@ jobs:
               context.set_offline(True)
               page.reload(wait_until='domcontentloaded')
               page.get_by_role('heading',name='SISTEMA AUTÓNOMO').wait_for()
-              page.wait_for_function("document.querySelector('#system-state').textContent === 'SIN CONEXIÓN'")
+              page.get_by_text('SIN CONEXIÓN',exact=True).wait_for()
               context.set_offline(False)
               page.reload(wait_until='networkidle')
-              page.wait_for_function("['ACTIVO','PARCIAL','SIN LECTURA','ATRASADO'].includes(document.querySelector('#system-state').textContent)")
+              page.locator('#system-state').filter(has_text=re.compile(r'^(ACTIVO|PARCIAL|SIN LECTURA|ATRASADO)$')).wait_for()
               report={'url':url,'https':'PASS','live_prices':len(snapshot['products']),'last_scan':snapshot['status']['last_attempt'],'viewports':[360,390,1365],'navigation':'PASS','resources':'PASS','history':'PASS','worker':worker,'offline_shell':'PASS','data_cache':'PASS','console_errors':errors}
               (output/'verification.json').write_text(json.dumps(report,indent=2))
               print(json.dumps(report))
