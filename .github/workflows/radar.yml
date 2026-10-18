@@ -1,0 +1,94 @@
+name: RADAR VARO · Observe and publish
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ['web/data/**', 'docs/**', 'evidence/**', 'README.md']
+  schedule:
+    - cron: '2,17,32,47 0-7,11-23 * * *'
+    - cron: '2-57/5 8-10 * * *'
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: radar-varo-main
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover existing checkpoint source on first publication
+        if: ${{ hashFiles('radar/core.py') == '' }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          with ZipFile('RADAR_VARO_CHECKPOINT_2026-10-12.zip') as archive:
+              for item in archive.infolist():
+                  path = Path(item.filename).relative_to('radar-varo')
+                  if item.is_dir() or '.github' in path.parts:
+                      continue
+                  if '..' in path.parts or path.is_absolute():
+                      raise ValueError('Invalid checkpoint path')
+                  if path.exists():
+                      continue
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_bytes(archive.read(item))
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Engine, parser, data integrity and deduplication
+        run: python -m unittest discover -s tests -v
+      - name: Install public-page renderer
+        run: |
+          pip install -r requirements-renderer.txt
+          python -m playwright install --with-deps chromium
+      - name: Observe public surfaces
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python -m radar.scan --rendered ${{ github.event_name != 'schedule' && '--force' || '' }}
+      - name: Save observation memory
+        run: |
+          git config user.name 'radar-varo-bot'
+          git config user.email 'radar-varo-bot@users.noreply.github.com'
+          git add radar web docs tests evidence sources.json requirements-renderer.txt README.md .gitignore
+          if ! git diff --cached --quiet; then
+            git commit -m 'data: persist real radar observation'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+      - name: Validate public bundle
+        run: python -m radar.verify
+      - name: Check mobile, desktop and interactions
+        run: python tests/browser_qa.py
+      - name: Preserve browser QA evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: radar-ui-${{ github.run_id }}
+          path: qa-results
+          retention-days: 7
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - name: Save scan evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: radar-scan-${{ github.run_id }}
+          path: web/data/evidence.json
+          retention-days: 7
+  publish:
+    needs: observe
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish exact observed state
+        id: deployment
+        uses: actions/deploy-pages@v4
