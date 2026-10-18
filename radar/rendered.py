@@ -14,7 +14,7 @@ from .scan import PublicClient, permitted, rules_for
 CARDS = 'cx-custom-product-grid-item'
 NEXT = 'cx-pagination a:has(.cx-icon-telcel-arrow-right):not(.disabled)'
 EXTRACT_CARDS = """els => els.map(e=>({
- url:e.querySelector('.cx-product-name')?.href || '',
+ url:e.querySelector('a.cx-product-name[href]')?.href || e.querySelector('a[href*="/tienda/producto/"]')?.href || '',
  name:e.querySelector('.a-product-name')?.textContent || '',
  prices:Array.from(e.querySelectorAll('custom-one-time-charge')).map(x=>x.innerText.trim()),
  old:e.querySelector('.price-list')?.textContent?.trim() || '',
@@ -92,7 +92,15 @@ def collect(config, prior):
                     except BrowserTimeout:
                         pagination_verified=False
                     cards=page.locator(CARDS).evaluate_all(EXTRACT_CARDS)
-                    parsed=[parse_card(c,surface['id']) for c in cards]
+                    parsed=[]
+                    for card in cards:
+                        try:
+                            if '/tienda/producto/' not in urlsplit(card.get('url','')).path:
+                                raise SourceError('Tarjeta sin enlace de producto verificable')
+                            parsed.append(parse_card(card,surface['id']))
+                        except (SourceError,ValueError) as exc:
+                            row['rejected_cards']=row.get('rejected_cards',0)+1
+                            evidence.setdefault('card_errors',[]).append({'surface':surface['id'],'name':card.get('name',''),'url':card.get('url',''),'reason':str(exc)[:140]})
                     if not parsed:raise SourceError('Página de catálogo vacía')
                     for p in parsed:
                         if p['id'] in local and local[p['id']]['price_cents']!=p['price_cents']:raise SourceError('Un SKU presenta precios contradictorios en el mismo barrido')
@@ -110,7 +118,7 @@ def collect(config, prior):
                             break
                         next_url=None
                     time.sleep(1.2)
-                if not next_url:row.update(status='OK',complete=True,resume_url=None)
+                if not next_url:row.update(status='OK',complete=not row.get('rejected_cards'),resume_url=None)
             except (SourceError,BrowserTimeout,BrowserError) as exc:
                 row['error']=str(exc).splitlines()[0][:180]
             products.update(local)
