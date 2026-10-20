@@ -1,12 +1,17 @@
 name: RADAR VARO · Observe and publish
 on:
   workflow_dispatch:
+    inputs:
+      notification_test:
+        description: 'Enviar prueba técnica al canal ntfy configurado'
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths-ignore: ['web/data/**', 'docs/**', 'evidence/**', 'README.md']
   schedule:
-    - cron: '2,17,32,47 0-7,11-23 * * *'
-    - cron: '2-57/5 8-10 * * *'
+    - cron: '2,17,32,47 0-7,11-19 * * *'
+    - cron: '2-57/5 8-10,20-23 * * *'
 permissions:
   contents: write
   pages: write
@@ -52,22 +57,44 @@ jobs:
       - name: Observe public surfaces
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: python -m radar.scan --rendered ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
-      - name: Save observation memory
+        run: python -m radar.scan --rendered ${{ github.event_name != 'schedule' && '--force' || '' }}
+      - name: Commit observations and pending alerts before delivery
         run: |
           git config user.name 'radar-varo-bot'
           git config user.email 'radar-varo-bot@users.noreply.github.com'
-          git add radar web docs tests evidence sources.json requirements-renderer.txt README.md .gitignore
+          git add web/data
           if ! git diff --cached --quiet; then
             git commit -m 'data: persist real radar observation'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+      - name: Deliver fresh personal alerts with deduplication and retries
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python -m radar.delivery
+      - name: Send requested phone connection test
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.notification_test }}
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python -m radar.delivery --test
+      - name: Persist delivery receipts even after a notification error
+        if: ${{ always() && !cancelled() }}
+        run: |
+          git config user.name 'radar-varo-bot'
+          git config user.email 'radar-varo-bot@users.noreply.github.com'
+          git add web/data
+          if ! git diff --cached --quiet; then
+            git commit -m 'data: persist alert delivery receipts'
             git pull --rebase origin main
             git push origin HEAD:main
           fi
       - name: Validate public bundle
         run: python -m radar.verify
       - name: Check mobile, desktop and interactions
+        if: github.event_name != 'schedule'
         run: python tests/browser_qa.py
       - name: Preserve browser QA evidence
+        if: github.event_name != 'schedule'
         uses: actions/upload-artifact@v4
         with:
           name: radar-ui-${{ github.run_id }}
@@ -101,10 +128,12 @@ jobs:
         with:
           python-version: '3.12'
       - name: Prepare independent live PWA verification
+        if: github.event_name != 'schedule'
         run: |
           pip install -r requirements-renderer.txt
           python -m playwright install --with-deps chromium
       - name: Verify public HTTPS, prices, mobile PWA and offline shell
+        if: github.event_name != 'schedule'
         env:
           PUBLIC_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
