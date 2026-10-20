@@ -1,0 +1,9 @@
+{
+  "phone_price_limit_cents": 180000,
+  "published_discount_min_pct": 50,
+  "published_savings_min_cents": 100000,
+  "observed_drop_min_pct": 30,
+  "realert_drop_pct": 3,
+  "freshness_minutes": 30,
+  "max_notifications_per_run": 12
+}

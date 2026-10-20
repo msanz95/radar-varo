@@ -7,7 +7,8 @@ import time
 import xml.etree.ElementTree as ET
 from urllib.parse import urlsplit
 
-from .core import now_iso, score
+from .core import now_iso, score, hot_window, dt
+from .alerts import evaluate
 from .parser import SourceError, category, confirm_detail, parse_card
 from .scan import PublicClient, permitted, rules_for
 
@@ -32,7 +33,7 @@ EXTRACT_DETAIL = """() => ({
 })"""
 
 
-def collect(config, prior):
+def collect(config, prior, rules=None):
     from playwright.sync_api import sync_playwright, TimeoutError as BrowserTimeout, Error as BrowserError
     client=PublicClient()
     statuses=[];products={};evidence={'at':now_iso(),'method':'public-rendered-dom','surfaces':{},'parser_verified_on_live_products':False}
@@ -45,6 +46,12 @@ def collect(config, prior):
         urls=[e.text for e in ET.fromstring(xml).iter() if e.tag.endswith('}loc')]
     except (SourceError,ET.ParseError) as exc:
         return [],[{'id':s['id'],'name':s['name'],'url':s['url'],'status':'SOURCE_ERROR','complete':False,'detected':0,'discovered':0,'error':str(exc)} for s in config['surfaces']],{**evidence,'error':str(exc)}
+    config=dict(config)
+    intensive=hot_window(evidence['at'])
+    if intensive:
+        config.update(render_budget_seconds=config.get('hot_render_budget_seconds',150),
+                      surface_budget_seconds=config.get('hot_surface_budget_seconds',45))
+    evidence['scan_mode']='intensive_phones' if intensive else 'all_surfaces'
     started=time.monotonic();blocked=False
     with sync_playwright() as pw:
         browser=pw.chromium.launch()
@@ -67,9 +74,55 @@ def collect(config, prior):
                 raise SourceError('La fuente exige verificación de acceso; sin reintentos evasivos')
             return response
 
+        checks=0;checked_ids=set()
+
+        def verify_candidates():
+            nonlocal checks
+            def priority(p):
+                a=score(p,prior.get('history',{}).get(p['id'],[]),evidence['at'])
+                candidate=evaluate({**p,'anomaly':a},rules)
+                codes=[x['code'] for x in candidate['reasons']] if candidate else []
+                rank=0 if 'PRICE_TARGET' in codes else 1 if candidate and candidate['notify'] else 2
+                previous=prior.get('products',{}).get(p['id'],{})
+                attempted=prior.get('detail_attempts',{}).get(p['id'],{}).get('at','')
+                return (rank,attempted or previous.get('detail_checked_at',''),-a['drop_pct'])
+            candidates=[p for p in products.values() if p['id'] not in checked_ids]
+            for p in sorted(candidates,key=priority):
+                if checks>=config.get('detail_checks_per_run',12):break
+                previous=prior.get('products',{}).get(p['id'],{})
+                last=previous.get('detail_checked_at')
+                if (last and 0 <= (dt(evidence['at'])-dt(last)).total_seconds()<600
+                    and previous.get('price_basis')=='exact' and previous['price_cents']==p['price_cents']):
+                    products[p['id']]={**p,**{k:previous[k] for k in ('availability','price_basis','price_caption','detail_checked_at') if k in previous}}
+                    checked_ids.add(p['id'])
+                    continue
+                attempt=prior.get('detail_attempts',{}).get(p['id'],{})
+                if (attempt.get('at') and attempt.get('price_cents')==p['price_cents']
+                    and 0 <= (dt(evidence['at'])-dt(attempt['at'])).total_seconds()<600):
+                    checked_ids.add(p['id'])
+                    continue
+                checked_ids.add(p['id'])
+                checks+=1
+                evidence.setdefault('detail_attempts',{})[p['id']]={'at':now_iso(),'price_cents':p['price_cents']}
+                try:
+                    navigate(p['url'])
+                    page.locator('.sku').wait_for(state='visible',timeout=12000)
+                    updated=confirm_detail(page.evaluate(EXTRACT_DETAIL),p)
+                    updated['detail_checked_at']=now_iso()
+                    products[p['id']]=updated
+                    evidence['detail_verified']=evidence.get('detail_verified',0)+1
+                    time.sleep(1.2)
+                except (SourceError,BrowserTimeout,BrowserError) as exc:
+                    evidence.setdefault('detail_errors',[]).append({'sku':p['sku'],'reason':str(exc).splitlines()[0][:140]})
+                    if blocked:break
+
         for surface in config['surfaces']:
             discovered=[u for u in urls if u and surface['product_path'] in u and permitted(u,client.rules)]
             row={'id':surface['id'],'name':surface['name'],'url':surface['url'],'status':'SOURCE_ERROR','complete':False,'detected':0,'discovered':len(discovered),'pages':0,'absence_checked_ids':[],'coverage':'SKUs expuestos por el catálogo público; variantes adicionales por barridos progresivos'}
+            if intensive and surface['id']!='smartphones':
+                row.update(status='DEFERRED',resume_url=prior.get('source_cursors',{}).get(surface['id']),coverage='Se conserva memoria; ventana intensiva dedicada a celulares')
+                statuses.append(row)
+                continue
             seen_pages=set();local={};next_url=prior.get('source_cursors',{}).get(surface['id']) or surface['url']
             if urlsplit(next_url).path!=urlsplit(surface['url']).path:next_url=surface['url']
             surface_started=time.monotonic()
@@ -126,28 +179,24 @@ def collect(config, prior):
             statuses.append(row)
             evidence['surfaces'][surface['id']]={'pages':row['pages'],'products':len(local),'listing_complete':row['complete']}
 
+            if surface['id']=='smartphones':
+                # Recheck known opportunities even when pagination is elsewhere.
+                watch=[p for pid,p in prior.get('products',{}).items() if pid not in products and p.get('surface')=='smartphones' and p.get('present') and evaluate(p,rules)]
+                watch.sort(key=lambda p:p.get('detail_checked_at',''))
+                for p in watch[:config.get('detail_checks_per_run',12)]:
+                    products[p['id']]=dict(p)
+                verify_candidates()
+                for p in watch[:config.get('detail_checks_per_run',12)]:
+                    if products[p['id']].get('detail_checked_at')==p.get('detail_checked_at'):
+                        products.pop(p['id'],None)
+
         # Verify strongest anomalies and a small sample of exact variants each run.
         # A card saying "Lo quiero" is NOT used as proof of inventory.
-        def priority(p):
-            hist=prior.get('history',{}).get(p['id'],[])
-            a=score(p,hist,evidence['at'])
-            return (-a['drop_pct'],prior.get('products',{}).get(p['id'],{}).get('detail_checked_at',''))
-        candidates=sorted(products.values(),key=priority)[:config.get('detail_checks_per_run',12)]
-        checks=0
-        for p in candidates:
-            try:
-                navigate(p['url'])
-                page.locator('.sku').wait_for(state='visible',timeout=12000)
-                updated=confirm_detail(page.evaluate(EXTRACT_DETAIL),p)
-                updated['detail_checked_at']=now_iso()
-                products[p['id']]=updated;checks+=1
-                time.sleep(1.2)
-            except (SourceError,BrowserTimeout,BrowserError) as exc:
-                evidence.setdefault('detail_errors',[]).append({'sku':p['sku'],'reason':str(exc).splitlines()[0][:140]})
-                if blocked:break
+        verify_candidates()
         # Missing from a listing alone can mean a changed representative color.
         # Require a direct 404 for known variants before advancing absence state.
-        missing=[p for pid,p in prior.get('products',{}).items() if pid not in products]
+        active_surfaces={s['id'] for s in statuses if s['status']!='DEFERRED'}
+        missing=[p for pid,p in prior.get('products',{}).items() if pid not in products and pid not in checked_ids and p['surface'] in active_surfaces]
         for p in missing[:6]:
             try:
                 response=navigate(p['url'])
@@ -159,7 +208,8 @@ def collect(config, prior):
             except (SourceError,BrowserTimeout,BrowserError):
                 if blocked:break
         browser.close()
-    evidence['detail_verified']=checks
+    evidence['detail_verified']=evidence.get('detail_verified',0)
+    evidence['detail_attempted']=checks
     evidence['parser_verified_on_live_products']=bool(products)
     evidence['elapsed_seconds']=round(time.monotonic()-started,1)
     evidence['runner_validation']='runtime_executed'
