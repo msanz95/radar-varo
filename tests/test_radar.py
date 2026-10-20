@@ -81,7 +81,9 @@ class MemoryTests(unittest.TestCase):
     def test_ads_cannot_generate_s_levels(self):
         s=ingest(initial_state(),[product(price=100_000,listed_old_price_cents=10_000_000)],OK,timestamp())
         self.assertEqual(s['products']['telcel:100001']['anomaly']['level'],'WATCH')
-        self.assertEqual(s['alerts'],[])
+        # Personal bargain alerts are independent; the advertised price still cannot grant S.
+        self.assertTrue(s['alerts'])
+        self.assertIn('PUBLISHED_PROMOTION',[r['code'] for r in s['products']['telcel:100001']['signal']['reasons']])
 
     def test_s_levels_need_time_and_observed_history(self):
         s=initial_state()
