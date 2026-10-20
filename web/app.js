@@ -6,17 +6,8 @@ const currency = new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',
 const datetime = new Intl.DateTimeFormat('es-MX',{timeZone:'America/Mexico_City',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
 const timeonly = new Intl.DateTimeFormat('es-MX',{timeZone:'America/Mexico_City',hour:'2-digit',minute:'2-digit',hour12:false});
 let data = null, tab = 'alerts', category = 'Todas', minimum = 'B', fetchFailed = false;
-let notificationTopic = '', openNotificationSetup = false;
-try {
-  notificationTopic = localStorage.getItem('radar-notification-topic') || '';
-  const incoming = new URLSearchParams(location.hash.slice(1)).get('notify');
-  if (incoming && /^[A-Za-z0-9_-]{32,160}$/.test(incoming)) {
-    notificationTopic = incoming;
-    openNotificationSetup = true;
-    localStorage.setItem('radar-notification-topic', incoming);
-    history.replaceState(null, '', location.pathname + location.search);
-  }
-} catch {}
+let notificationTopic = '';
+try { notificationTopic = localStorage.getItem('radar-notification-topic') || ''; } catch {}
 try { minimum = localStorage.getItem('radar-minimum') || 'B'; } catch {}
 if (!(minimum in levels) || minimum === 'WATCH') minimum = 'B';
 const escape = value => String(value ?? '').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
@@ -35,6 +26,18 @@ function notificationLinks() {
     $('#subscribe-phone').href = `ntfy://ntfy.sh/${notificationTopic}`;
     $('#subscribe-web').href = `https://ntfy.sh/${notificationTopic}`;
   }
+}
+function openPhoneSetup() {
+  const incoming=new URLSearchParams(location.hash.slice(1)).get('notify');
+  if(!incoming || !/^[A-Za-z0-9_-]{32,160}$/.test(incoming)) return;
+  notificationTopic=incoming;
+  try{localStorage.setItem('radar-notification-topic',incoming);}catch{}
+  notificationLinks();
+  $(`input[name=level][value="${minimum}"]`).checked=true;
+  if(!$('#preferences').open) $('#preferences').showModal();
+}
+function clearSetupAddress() {
+  if(new URLSearchParams(location.hash.slice(1)).has('notify')) history.replaceState(null,'',location.pathname+location.search);
 }
 function empty(title,message,link=false) { return `<div class="empty">${icon('radar')}<h3>${escape(title)}</h3><p>${escape(message)}</p>${link ? '<a href="https://www.telcel.com/tienda/" target="_blank" rel="noopener noreferrer">Abrir tienda Telcel ↗</a>' : ''}</div>`; }
 
@@ -138,7 +141,9 @@ $('#save-channel').addEventListener('click',()=>{
   $('#channel-feedback').textContent='Canal guardado en este dispositivo. Pulsa Suscribirme en Android y permite las notificaciones en ntfy.';
   notificationLinks();
 });
-$('#save-preferences').addEventListener('click',()=>{minimum=$('input[name=level]:checked').value;try{localStorage.setItem('radar-minimum',minimum);}catch{}if(data)renderFeed();});
+$('#subscribe-phone').addEventListener('click',clearSetupAddress);
+$('#subscribe-web').addEventListener('click',clearSetupAddress);
+$('#save-preferences').addEventListener('click',()=>{minimum=$('input[name=level]:checked').value;try{localStorage.setItem('radar-minimum',minimum);}catch{}clearSetupAddress();if(data)renderFeed();});
 $('#product-detail .close').addEventListener('click',()=>$('#product-detail').close());
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
 $('#feed').addEventListener('click',async e=>{
@@ -152,7 +157,8 @@ $('#feed').addEventListener('click',async e=>{
 });
 load();
 notificationLinks();
-if(openNotificationSetup){$(`input[name=level][value="${minimum}"]`).checked=true;$('#preferences').showModal();}
+openPhoneSetup();
+window.addEventListener('hashchange',openPhoneSetup);
 setInterval(()=>{if(!document.hidden)load();},60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
 window.addEventListener('online',load);
