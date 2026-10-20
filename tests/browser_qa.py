@@ -4,6 +4,7 @@ import functools
 import http.server
 import json
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 def main():
@@ -34,8 +35,25 @@ def main():
                 page.get_by_label('S++ · Sólo anomalías extremas').check()
                 page.get_by_role('button',name='Guardar preferencia').click()
                 page.reload(wait_until='networkidle')
+                # Price-target / published-promotion alerts bypass the historical S++ filter.
+                snapshot=json.loads((root/'web/data/dashboard.json').read_text())
+                protected=[p for p in snapshot['products'] if p.get('signal') and any(r['code'] in ('PRICE_TARGET','PUBLISHED_PROMOTION') for r in p['signal']['reasons']) and p.get('present') and (datetime.now(timezone.utc)-datetime.fromisoformat(p['last_seen'])).total_seconds()<1800]
+                for p in protected:
+                    assert page.locator(f'[data-detail="{p["id"]}"]').count()==1, 'Personal alert hidden by S++ filter'
+                if protected:
+                    assert page.locator('.signal-state').first.inner_text(), 'Missing preliminary/confirmed evidence'
+                page.get_by_role('button',name='Preferencias de alertas').click()
+                assert page.locator('#alert-rules').inner_text().find('$1,800')>=0
+                assert page.locator('#save-channel').is_visible()
+                page.locator('#preferences').get_by_role('button',name='Cerrar').click()
                 page.get_by_role('button',name='Preferencias de alertas').click()
                 assert page.get_by_label('S++ · Sólo anomalías extremas').is_checked()
+                page.locator('#preferences').get_by_role('button',name='Cerrar').click()
+                test_topic='browser_test_topic_no_real_messages_123456'
+                page.goto('http://127.0.0.1:8765/#notify='+test_topic,wait_until='networkidle')
+                assert page.locator('#preferences').is_visible(), 'Phone setup did not open'
+                assert page.locator('#subscribe-phone').get_attribute('href')=='ntfy://ntfy.sh/'+test_topic
+                assert page.evaluate('location.hash')=='', 'Channel fragment retained in address bar'
                 page.locator('#preferences').get_by_role('button',name='Cerrar').click()
                 assert not errors,errors
                 page.screenshot(path=str(output/f'viewport-{width}.png'),full_page=True)
