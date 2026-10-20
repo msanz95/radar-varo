@@ -53,8 +53,9 @@ def main():
                 page.goto('http://127.0.0.1:8765/#notify='+test_topic,wait_until='networkidle')
                 assert page.locator('#preferences').is_visible(), 'Phone setup did not open'
                 assert page.locator('#subscribe-phone').get_attribute('href')=='ntfy://ntfy.sh/'+test_topic
-                assert page.evaluate('location.hash')=='', 'Channel fragment retained in address bar'
-                page.locator('#preferences').get_by_role('button',name='Cerrar').click()
+                assert page.evaluate('location.hash')=='#notify='+test_topic, 'Setup URL must remain usable until the user confirms'
+                page.get_by_role('button',name='Guardar preferencia').click()
+                assert page.evaluate('location.hash')=='', 'Channel fragment retained after user confirmation'
                 assert not errors,errors
                 page.screenshot(path=str(output/f'viewport-{width}.png'),full_page=True)
                 results.append({'viewport':f'{width}x{height}','overflow':False,'tabs':'PASS','preferences_persist':'PASS','javascript_errors':errors})
