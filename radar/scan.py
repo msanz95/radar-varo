@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
-from .core import due, hot_window, ingest, initial_state, now_iso, should_notify
+from .core import due, hot_window, ingest, initial_state, now_iso
 from .parser import Document, SourceError, parse_product
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -150,35 +150,16 @@ def collect(config):
 
 
 def notify(s):
-    topic = os.environ.get("NTFY_TOPIC", "")
-    if not topic:
-        return {"configured": False, "delivered": 0, "errors": 0}
-    if not re.fullmatch(r"[A-Za-z0-9_-]{32,160}", topic):
-        return {"configured": False, "delivered": 0, "errors": 1}
-    sent, errors = 0, 0
-    for alert in s["alerts"]:
-        p = s["products"][alert["product_id"]]
-        if not should_notify(p, s["delivery"].get(p["id"])):
-            continue
-        payload = {"topic": topic, "title": f"RADAR VARO · {p['anomaly']['level']}", "message": f"{p['name']} · ${p['price_cents']/100:,.2f} MXN. {p['anomaly']['reason']}. Anomalía Telcel; reventa aún sin referencia externa.", "priority": 5 if p["anomaly"]["level"] == "S++" else 4, "click": p["url"], "tags": ["rotating_light" if p["anomaly"]["level"] == "S++" else "moneybag"]}
-        try:
-            request = urllib.request.Request("https://ntfy.sh/", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(request, timeout=15) as response:
-                receipt = json.load(response)
-                if not receipt.get("id"):
-                    raise ValueError("Missing receipt")
-            s["delivery"][p["id"]] = {"price_cents": p["price_cents"], "level": p["anomaly"]["level"], "episode": p["episode"], "confidence": p["anomaly"]["confidence"], "at": now_iso()}
-            sent += 1
-        except (urllib.error.URLError, TimeoutError, ValueError):
-            errors += 1
-    return {"configured": True, "delivered": sent, "errors": errors}
+    from .delivery import send
+    return send(s, os.environ.get("NTFY_TOPIC", ""), rules=read(ROOT / "alert_rules.json", {}))
 
 
-def publish_data(s, surfaces, evidence, automation, push):
+def publish_data(s, surfaces, evidence, automation, push, rules=None):
     at = s["last_attempt"]
     good = sum(x["status"] == "OK" for x in surfaces)
     health = "OK" if good == len(surfaces) and surfaces and all(x.get('complete') for x in surfaces) else "PARTIAL" if good else "SOURCE_ERROR"
-    status = {"state": health, "automation": automation, "last_attempt": at, "last_success": s["last_success"], "successful_scans": s["successful_scans"], "hot_window": hot_window(at), "surfaces": surfaces, "notifications": push, "mode": "telcel_anomaly", "version": "0.1.0"}
+    from .alerts import settings
+    status = {"state": health, "automation": automation, "last_attempt": at, "last_success": s["last_success"], "successful_scans": s["successful_scans"], "hot_window": hot_window(at), "surfaces": surfaces, "notifications": push, "rules": settings(rules), "schedule": {"timezone": "America/Mexico_City", "hot_windows": ["02:00–04:59", "14:00–17:59"], "hot_minutes": 5, "normal_minutes": 15}, "mode": "telcel_anomaly", "version": "0.2.0"}
     # A single dashboard bundle prevents cross-generation JSON inconsistencies in the UI.
     dashboard = {"schema_version": 1, "generated_at": at, "status": status, "products": list(s["products"].values()), "alerts": s["alerts"], "events": s["events"][:150]}
     atomic(DATA / "state.json", s)
@@ -203,18 +184,20 @@ def main():
         print("SKIP: ejecución reciente")
         return
     config = read(ROOT / "sources.json", {})
+    rules = read(ROOT / "alert_rules.json", {})
     if args.rendered:
         from .rendered import collect as rendered_collect
-        observations, surfaces, evidence = rendered_collect(config,s)
+        observations, surfaces, evidence = rendered_collect(config,s,rules)
     else:
         observations, surfaces, evidence = collect(config)
-    s = ingest(s, observations, surfaces, at)
+    s = ingest(s, observations, surfaces, at, rules)
+    s.setdefault('detail_attempts',{}).update(evidence.get('detail_attempts',{}))
+    s['detail_attempts']={k:v for k,v in s['detail_attempts'].items() if k in s['products']}
     s['source_cursors']={x['id']:x.get('resume_url') for x in surfaces}
     automation = "github_actions" if os.environ.get("GITHUB_ACTIONS") == "true" else "not_deployed"
-    # Persist observations before external side effects. Topic/token never enter the snapshot.
-    publish_data(s, surfaces, evidence, automation, {"configured": bool(os.environ.get("NTFY_TOPIC")), "delivered": 0, "errors": 0})
-    push = notify(s)
-    publish_data(s, surfaces, evidence, automation, push)
+    # The workflow commits this outbox BEFORE running radar.delivery.
+    # Topic/token never enter the snapshot. Failed deliveries remain queued.
+    publish_data(s, surfaces, evidence, automation, {"configured": bool(os.environ.get("NTFY_TOPIC")), "delivered": 0, "errors": 0, "pending": len(s["outbox"]), "device_verified": False, "last_accepted_at": s.get("last_notification_accepted")}, rules)
     print(json.dumps({"observed": len(observations), "surfaces": [{"id": x["id"], "status": x["status"], "discovered": x["discovered"], "detected": x["detected"]} for x in surfaces], "automatic": automation == "github_actions", "complete": all(x.get("complete") for x in surfaces)}, ensure_ascii=False))
 
 
