@@ -5,6 +5,8 @@
   "render_budget_seconds": 230,
   "surface_budget_seconds": 40,
   "detail_checks_per_run": 12,
+  "hot_render_budget_seconds": 150,
+  "hot_surface_budget_seconds": 45,
   "terms_reviewed_at": "2026-10-12",
   "terms_urls": ["https://www.telcel.com/terminos-y-condiciones", "https://www.telcel.com/personas/equipos/terminos-y-condiciones"],
   "surfaces": [
