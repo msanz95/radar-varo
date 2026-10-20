@@ -21,7 +21,8 @@ def now_iso():
 
 
 def hot_window(at):
-    return 2 <= dt(at).astimezone(ZoneInfo("America/Mexico_City")).hour < 5
+    hour = dt(at).astimezone(ZoneInfo("America/Mexico_City")).hour
+    return 2 <= hour < 5 or 14 <= hour < 18
 
 
 def due(last, at):
@@ -62,7 +63,7 @@ def validate(p):
 
 
 def initial_state():
-    return {"products": {}, "history": {}, "events": [], "alerts": [], "delivery": {}, "last_attempt": None, "last_success": None, "successful_scans": 0}
+    return {"products": {}, "history": {}, "events": [], "alerts": [], "delivery": {}, "outbox": {}, "last_attempt": None, "last_success": None, "successful_scans": 0}
 
 
 def score(p, hist, at):
@@ -94,13 +95,13 @@ def score(p, hist, at):
         level = "S+"
     if mature and age_days >= 7 and len(prior_days) >= 7 and drop >= 80:
         level = "S++"
-    reason = f"Caída del {drop:g}% frente al histórico propio" if drop > 0 else "Construyendo referencia con observaciones reales"
+    reason = f"Caída del {drop:g}% frente al histórico propio" if drop > 0 else "Sin baja frente al histórico propio" if hist else "Primera observación; sin referencia propia todavía"
     if level == "S++":
         reason = f"Anomalía extrema: {drop:g}% bajo el histórico propio de al menos 7 días"
     return {"level": level, "drop_pct": max(0, drop), "baseline_cents": baseline, "reason": reason, "history_days": round(age_days, 1), "mode": "telcel_anomaly", "confidence": "histórico" if mature else "inicial"}
 
 
-def ingest(state, observations, surfaces, at):
+def ingest(state, observations, surfaces, at, rules=None):
     """Surface complete=True means all pages/variants, not a partial rotation."""
     s = copy.deepcopy(state)
     validated = [validate(p) for p in observations]
@@ -163,15 +164,19 @@ def ingest(state, observations, surfaces, at):
             s["history"].pop(pid, None)
             s["delivery"].pop(pid, None)
     for surface in surfaces:
-        if surface["status"] != "OK":
+        if surface["status"] not in ("OK", "DEFERRED"):
             event("SOURCE_ERROR", surface=surface["id"], reason=surface.get("error", "Fuente incompleta"))
     s["events"] = (fresh_events[::-1] + s["events"])[:1500]
+    from .alerts import evaluate, prepare_outbox, settings
+    rules = settings(rules)
     s["alerts"] = []
     for p in s["products"].values():
-        fresh = (dt(at) - dt(p["last_seen"])).total_seconds() < 1800
-        if p.get("present") and fresh and p["availability"] != "out_of_stock" and LEVELS[p["anomaly"]["level"]] >= 1:
-            s["alerts"].append({"id": stable_id(p["id"], p["price_cents"], p["anomaly"]["level"], p["episode"]), "product_id": p["id"], "at": p["last_seen"]})
-    s["alerts"].sort(key=lambda a: (LEVELS[s["products"][a["product_id"]]["anomaly"]["level"]], s["products"][a["product_id"]]["anomaly"]["drop_pct"]), reverse=True)
+        fresh = (dt(at) - dt(p["last_seen"])).total_seconds() < rules["freshness_minutes"] * 60
+        p["signal"] = evaluate(p, rules)
+        if p.get("present") and fresh and p["signal"]:
+            s["alerts"].append({"id": stable_id(p["id"], p["price_cents"], p["signal"], p["episode"]), "product_id": p["id"], "at": p["last_seen"]})
+    s["alerts"].sort(key=lambda a: (s["products"][a["product_id"]]["signal"]["priority"], LEVELS[s["products"][a["product_id"]]["anomaly"]["level"]], s["products"][a["product_id"]]["anomaly"]["drop_pct"]), reverse=True)
+    prepare_outbox(s, at, rules)
     s["last_attempt"] = at
     if surfaces and all(x["status"] == "OK" and x.get("complete") for x in surfaces):
         s["last_success"] = at
